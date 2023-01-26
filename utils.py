@@ -7,6 +7,7 @@
 import torch
 from torch import nn 
 from torch.nn import functional as F
+import numpy as np 
 
 
 
@@ -43,10 +44,8 @@ from torch.nn import functional as F
             
 #         return x
 
-
-
 class GroupNorm(torch.nn.Module):
-    def __init__(self, num_channels, num_groups=32, min_channels_per_group=4, eps=1e-5):
+    def __init__(self, num_channels, num_groups=1, min_channels_per_group=1, eps=1e-5):
         super().__init__()
         self.num_groups = min(num_groups, num_channels // min_channels_per_group)
         self.eps = eps
@@ -58,34 +57,49 @@ class GroupNorm(torch.nn.Module):
         return x
 
 
+
 class UNet(nn.Module):
-    def __init__(self, in_channels=8, out_channels=1):
+    def __init__(self, in_channels=1, out_channels=1):
         super().__init__()
-        self.down_layers = torch.nn.ModuleList([
-            GroupNorm(num_channels=in_channels),
-            nn.Conv2d(32, 64, kernel_size=5, padding=2),
-            nn.Linear(in_features=64, out_features=64),
+        # self.down_layers = torch.nn.ModuleList([
+        #     GroupNorm(num_channels=in_channels),
+        #     nn.Conv2d(1, 64, kernel_size=5, padding=2),
+        #     nn.Linear(in_features=64, out_features=128),
+        # ])
+        # self.up_layers = torch.nn.ModuleList([
+        #     GroupNorm(num_channels=128),
+        #     nn.Conv2d(128, 64, kernel_size=5, padding=2),
+        #     nn.Conv2d(64, out_channels, kernel_size=5, padding=2), 
+        # ])
+        self.down_layers = torch.nn.ModuleList([ 
+            nn.Conv2d(in_channels, 64, kernel_size=5, padding=2),
+            nn.Conv2d(64, 128, kernel_size=1*1, padding=2),
+            nn.Linear(in_features = 9, out_features= 128),
         ])
         self.up_layers = torch.nn.ModuleList([
-            GroupNorm(num_channels=64),
+            nn.Conv2d(128, 64, kernel_size=5, padding=2),
             nn.Conv2d(64, 32, kernel_size=5, padding=2),
             nn.Conv2d(32, out_channels, kernel_size=5, padding=2), 
         ])
         self.act = nn.SiLU() # The activation function
-        self.downscale = nn.MaxPool2d(2)
-        self.upscale = nn.Upsample(scale_factor=2)
+        self.downscale = nn.MaxPool2d(2)   #multiplies by 2 the out_channel (?) 
+        self.upscale = nn.Upsample(scale_factor=2) # multiplies by 2 the out_channels (?)
 
     def forward(self, x):
         h = []
         for i, l in enumerate(self.down_layers):
             x = self.act(l(x)) # Through the layer and the activation function
-            if i < 2: # For all but the third (final) down layer:
-              h.append(x) # Storing output for skip connection
-              x = self.downscale(x) # Downscale ready for the next layer
+            #if i < 2: # For all but the third (final) down layer:
+            h.append(x) # Storing output for skip connection
+            x = self.downscale(x) # Downscale ready for the next layer
               
         for i, l in enumerate(self.up_layers):
             if i > 0: # For all except the first up layer
               x = self.upscale(x) # Upscale
+              #x.reshape([128, 64, 18, 18])
+              print(x.size())
+              print(len(h))
+              print(h.pop().size())
               x += h.pop() # Fetching stored output (skip connection)
             x = self.act(l(x)) # Through the layer and the activation function
             
